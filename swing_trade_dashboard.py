@@ -2,12 +2,12 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
 from datetime import datetime, timedelta
+import pytz
 
 # Configure page settings
 st.set_page_config(
-    page_title="Professional Swing Trading Dashboard",
+    page_title="Professional Trading Dashboard",
     page_icon="📈",
     layout="wide"
 )
@@ -15,18 +15,137 @@ st.set_page_config(
 # Custom styling
 st.markdown("""
 <style>
-    .big-font { font-size:24px !important; font-weight:bold; }
-    .recommendation { padding:15px; border-radius:10px; margin:10px 0; }
-    .buy { background-color:#e6f7e6; border-left:5px solid #4CAF50; }
-    .sell { background-color:#ffe6e6; border-left:5px solid #f44336; }
-    .hold { background-color:#e6f0ff; border-left:5px solid #2196F3; }
-    .positive { color: #4CAF50; }
-    .negative { color: #f44336; }
-    .card { padding:15px; border-radius:10px; box-shadow:0 4px 6px rgba(0,0,0,0.1); margin-bottom:15px; }
-    .narrative { background-color:#f8f9fa; padding:20px; border-radius:10px; border-left:5px solid #6c757d; }
-    .warning { background-color:#fff3cd; padding:10px; border-radius:5px; border-left:5px solid #ffc107; }
-    .range-info { margin-top: 10px; }
-    .trade-levels { margin-top: 10px; }
+    :root {
+        --primary-color: #4CAF50;
+        --secondary-color: #2196F3;
+        --positive-color: #27ae60;
+        --negative-color: #e74c3c;
+        --warning-color: #e67e22;
+    }
+    
+    .header { 
+        font-size: 28px !important; 
+        font-weight: bold; 
+        padding-bottom: 10px;
+        border-bottom: 2px solid var(--primary-color);
+        margin-bottom: 20px;
+        color: #2c3e50;
+    }
+    .section-header { 
+        font-size: 20px !important; 
+        font-weight: bold; 
+        background-color: #f0f5ff;
+        padding: 12px;
+        border-radius: 5px;
+        margin-top: 25px;
+        margin-bottom: 15px;
+        color: #2c3e50;
+        border-left: 4px solid var(--secondary-color);
+    }
+    .metric-label { 
+        font-weight: bold; 
+        font-size: 15px;
+    }
+    .metric-value { 
+        font-size: 15px;
+    }
+    .source-row { 
+        font-size: 12px; 
+        color: #666; 
+        margin-top: -10px;
+        margin-bottom: 15px;
+    }
+    .takeaway-box { 
+        background-color: #eaf7ff; 
+        padding: 15px; 
+        border-radius: 5px; 
+        border-left: 4px solid #3498db;
+        margin: 15px 0;
+        font-size: 15px;
+    }
+    .indicator-row { 
+        margin-bottom: 8px;
+        font-size: 15px;
+    }
+    .indicator-name { 
+        font-weight: bold; 
+        font-size: 15px;
+    }
+    .trading-idea { 
+        background-color: #e6f7e6; 
+        padding: 12px; 
+        border-radius: 5px; 
+        border-left: 4px solid var(--primary-color);
+        margin: 10px 0;
+        font-size: 15px;
+    }
+    .news-item { 
+        margin-bottom: 8px;
+        font-size: 15px;
+    }
+    .positive { color: var(--positive-color); }
+    .negative { color: var(--negative-color); }
+    .warning { color: var(--warning-color); }
+    .volatility-high { color: var(--warning-color); font-weight: bold; }
+    .recommendation { 
+        padding: 20px; 
+        border-radius: 10px; 
+        margin: 15px 0;
+        font-size: 16px;
+    }
+    .buy { 
+        background-color: rgba(39, 174, 96, 0.15); 
+        border-left: 5px solid var(--positive-color); 
+    }
+    .sell { 
+        background-color: rgba(231, 76, 60, 0.15); 
+        border-left: 5px solid var(--negative-color); 
+    }
+    .hold { 
+        background-color: rgba(52, 152, 219, 0.15); 
+        border-left: 5px solid var(--secondary-color); 
+    }
+    .narrative { 
+        background-color: #f8f9fa; 
+        padding: 20px; 
+        border-radius: 10px; 
+        border-left: 5px solid #6c757d;
+        font-size: 15px;
+    }
+    .commentary { 
+        font-size: 14px;
+        color: #555;
+        font-style: italic;
+        margin-bottom: 10px;
+    }
+    .extended-hours-container {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 20px;
+    }
+    .extended-hours-box {
+        width: 48%;
+        padding: 15px;
+        border-radius: 8px;
+        background-color: #f9f9f9;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .data-point {
+        margin-bottom: 8px;
+        display: flex;
+    }
+    .data-label {
+        font-weight: bold;
+        min-width: 100px;
+    }
+    .data-value {
+        flex-grow: 1;
+    }
+    .price-change {
+        font-weight: bold;
+        padding: 2px 5px;
+        border-radius: 3px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -34,62 +153,55 @@ st.markdown("""
 st.sidebar.header("📊 Trading Controls")
 symbol = st.sidebar.text_input("Stock Symbol", "AAPL").strip().upper()
 timeframe = st.sidebar.selectbox("Chart Timeframe", 
-                                ["15m", "30m", "1h", "4h", "Daily"], 
-                                index=0)
-risk_level = st.sidebar.selectbox("Risk Tolerance", ["Low", "Medium", "High"], index=1)
-risk_reward = st.sidebar.slider("Risk:Reward Ratio", 1.0, 5.0, 2.0, 0.5)
+                                ["Daily", "15m", "30m", "1h", "4h"], 
+                                index=0)  # Set Daily as default
 
 # TECHNICAL ANALYSIS FUNCTIONS
 def calculate_support_resistance(df):
     """Calculate meaningful support and resistance levels"""
-    if len(df) < 20:
+    if len(df) < 10:
         return float(df['Close'].min()), float(df['Close'].max())
     
-    # Get scalar values
-    high = float(df['High'].max())
-    low = float(df['Low'].min())
-    diff = high - low
+    # Use recent price action (last 20 periods)
+    recent_df = df.tail(20)
+    high = float(recent_df['High'].max())
+    low = float(recent_df['Low'].min())
     
+    # Calculate Fibonacci levels
+    diff = high - low
     fib_382 = float(high - diff * 0.382)
     fib_618 = float(high - diff * 0.618)
     
-    # Get last values as scalars
+    # Calculate pivot points
     last_high = float(df['High'].iloc[-1])
     last_low = float(df['Low'].iloc[-1])
     last_close = float(df['Close'].iloc[-1])
-    
-    # Calculate pivot points
     pivot = float((last_high + last_low + last_close) / 3)
     s1 = float(2 * pivot - last_high)
     r1 = float(2 * pivot - last_low)
     
-    # Get min/max as scalars
-    min_close = float(df['Close'].tail(20).min())
-    max_close = float(df['Close'].tail(20).max())
+    # Identify recent support and resistance
+    min_close = float(recent_df['Close'].min())
+    max_close = float(recent_df['Close'].max())
     
-    # Calculate support using explicit comparison
-    support = fib_382
-    if s1 < support:
-        support = s1
-    if min_close < support:
-        support = min_close
+    # Combine indicators to determine key levels
+    support_candidates = [low, fib_382, s1, min_close]
+    resistance_candidates = [high, fib_618, r1, max_close]
     
-    # Calculate resistance using explicit comparison
-    resistance = fib_618
-    if r1 > resistance:
-        resistance = r1
-    if max_close > resistance:
-        resistance = max_close
+    # Filter out unreasonable values
+    current_price = last_close
+    valid_supports = [x for x in support_candidates if x < current_price * 0.99]
+    valid_resistances = [x for x in resistance_candidates if x > current_price * 1.01]
     
-    # Ensure levels are reasonable relative to current price
-    current = last_close
-    if support < current * 0.7:  # If too low
-        # Convert all values to floats before comparison
-        support = max(float(s1), float(fib_382), float(df['Close'].tail(10).min()))
+    # Use the most significant levels
+    support = min(valid_supports) if valid_supports else low
+    resistance = max(valid_resistances) if valid_resistances else high
     
-    if resistance > current * 1.3:  # If too high
-        # Convert all values to floats before comparison
-        resistance = min(float(r1), float(fib_618), float(df['Close'].tail(10).max()))
+    # Final sanity checks
+    if support > current_price * 0.95:
+        support = min(low, min_close)
+    if resistance < current_price * 1.05:
+        resistance = max(high, max_close)
     
     return float(support), float(resistance)
 
@@ -130,87 +242,109 @@ def calculate_vwap(df):
     vwap = (typical_price * df['Volume']).cumsum() / df['Volume'].cumsum()
     return float(vwap.iloc[-1])
 
-def generate_recommendation(df, symbol, risk_level):
+def calculate_daily_pivot_points(symbol):
+    """Calculate pivot points using daily data and classic formula"""
+    try:
+        daily_data = yf.download(symbol, period='5d', interval='1d')
+        if len(daily_data) < 2:
+            return 0.0, 0.0, 0.0
+        
+        prev_day = daily_data.iloc[-2]
+        high = float(prev_day['High'])
+        low = float(prev_day['Low'])
+        close = float(prev_day['Close'])
+        
+        pivot = (high + low + close) / 3
+        s1 = (2 * pivot) - high
+        r1 = (2 * pivot) - low
+        
+        return s1, pivot, r1
+    except Exception as e:
+        st.error(f"Error calculating pivot points: {e}")
+        return 0.0, 0.0, 0.0
+
+def generate_recommendation(df, symbol):
     """Generate professional trading recommendation"""
     current_price = float(df['Close'].iloc[-1])
     support, resistance = calculate_support_resistance(df)
     volatility = calculate_volatility(df)
     rsi = calculate_rsi(df)
-    vwap = calculate_vwap(df)
     
-    # Calculate price position relative to levels
-    support_dist = (current_price - support) / current_price * 100
-    resistance_dist = (resistance - current_price) / current_price * 100
-    
-    # Recommendation logic
     action = "HOLD"
     reason = "Price between key levels"
     confidence = "Medium"
     
-    if support_dist < 3:  # Within 3% of support
-        action = "BUY"
-        reason = "Price near strong support"
-        confidence = "High" if risk_level != "Low" else "Medium"
-    elif resistance_dist < 3:  # Within 3% of resistance
+    # Calculate distance to support and resistance
+    support_dist = ((current_price - support) / current_price * 100) if current_price != 0 else 0
+    resistance_dist = ((resistance - current_price) / current_price * 100) if current_price != 0 else 0
+    
+    # Determine RSI condition
+    rsi_condition = ""
+    if rsi > 70:
+        rsi_condition = "overbought"
+    elif rsi < 30:
+        rsi_condition = "oversold"
+    
+    # Generate recommendation based on price position and RSI
+    if support_dist < 5 and current_price > support:
+        if rsi_condition == "oversold":
+            action = "BUY"
+            reason = "Price near strong support with oversold conditions"
+            confidence = "High"
+        else:
+            action = "BUY"
+            reason = "Price near strong support"
+    elif resistance_dist < 5 and current_price < resistance:
+        if rsi_condition == "overbought":
+            action = "SELL"
+            reason = "Price near strong resistance with overbought conditions"
+            confidence = "High"
+        else:
+            action = "SELL"
+            reason = "Price near strong resistance"
+    elif rsi_condition == "overbought":
         action = "SELL"
-        reason = "Price near strong resistance"
-        confidence = "High" if risk_level != "Low" else "Medium"
+        reason = "Overbought conditions"
+        confidence = "Medium"
+    elif rsi_condition == "oversold":
+        action = "BUY"
+        reason = "Oversold conditions"
+        confidence = "Medium"
     
-    # Context-aware trading ranges
-    if action == "BUY":
-        buy_range = f"${max(support, current_price - volatility):.2f}-${min(current_price * 1.01, resistance):.2f}"
-        sell_range = f"${min(current_price * 1.02, resistance):.2f}-${min(current_price * 1.05, resistance * 1.03):.2f}"
-    elif action == "SELL":
-        buy_range = f"${max(support * 0.97, current_price * 0.95):.2f}-${max(support, current_price * 0.98):.2f}"
-        sell_range = f"${max(current_price * 0.99, support):.2f}-${min(resistance, current_price * 1.01):.2f}"
-    else:  # HOLD
-        buy_range = f"${max(support, current_price - volatility):.2f}-${current_price:.2f}"
-        sell_range = f"${current_price:.2f}-${min(resistance, current_price + volatility):.2f}"
-    
-    # Calculate key metrics
-    if len(df) > 1:
-        prev_close = float(df['Close'].iloc[-2])
-        daily_change = float(((current_price - prev_close) / prev_close) * 100)
-    else:
-        daily_change = 0.0
+    # Special case for strong trends
+    if len(df) > 20:
+        ma20 = float(df['Close'].tail(20).mean())
+        ma50 = float(df['Close'].tail(50).mean())
+        
+        if current_price > ma20 > ma50 and action == "BUY":
+            confidence = "High"
+        elif current_price < ma20 < ma50 and action == "SELL":
+            confidence = "High"
     
     return {
         "symbol": symbol,
-        "current_price": float(current_price),
-        "support": float(support),
-        "resistance": float(resistance),
-        "volatility": float(volatility),
-        "rsi": float(rsi),
-        "vwap": float(vwap),
-        "daily_change": float(daily_change),
+        "current_price": current_price,
+        "support": support,
+        "resistance": resistance,
+        "volatility": volatility,
+        "rsi": rsi,
         "action": action,
         "reason": reason,
-        "confidence": confidence,
-        "buy_range": buy_range,
-        "sell_range": sell_range
+        "confidence": confidence
     }
 
 def generate_narrative(recommendation, stock_data):
-    """Generate beginner-friendly narrative analysis of price action"""
+    """Generate beginner-friendly narrative analysis"""
     try:
-        # Check for sufficient data
-        if len(stock_data) < 20:
-            return f"**Beginner-Friendly Analysis of {recommendation['symbol']}**\n\n⚠️ **Warning**: Insufficient data for detailed analysis ({len(stock_data)} bars available). Requires at least 20 bars."
-        
-        # Safely extract all values as scalars
         current_price = float(recommendation['current_price'])
         support = float(recommendation['support'])
         resistance = float(recommendation['resistance'])
         volatility = float(recommendation['volatility'])
-        daily_change = float(recommendation['daily_change'])
         rsi = float(recommendation['rsi'])
-        vwap = float(recommendation['vwap'])
         
-        # Safely calculate trend direction
         short_term = float(stock_data['Close'].tail(5).mean())
         medium_term = float(stock_data['Close'].tail(20).mean())
         
-        # Determine trend with explicit comparisons
         trend = "sideways/range-bound"
         if current_price > medium_term and medium_term > short_term:
             trend = "strong uptrend"
@@ -221,100 +355,41 @@ def generate_narrative(recommendation, stock_data):
         elif current_price < medium_term:
             trend = "moderate downtrend"
         
-        # Initialize gap variables
         gap_info = ""
-        gap_target = ""
-        prev_close_value = None
-        
-        # Safely check for gaps
         if len(stock_data) >= 2:
-            try:
-                # Get values using iloc for position-based access
-                prev_close_value = float(stock_data['Close'].iloc[-2])
-                current_open_value = float(stock_data['Open'].iloc[-1])
-                
-                # Calculate gap percentage
-                gap_percent = ((current_open_value - prev_close_value) / prev_close_value) * 100
-                
-                if gap_percent > 2.0:
-                    gap_info = f"with a significant gap up ({gap_percent:.1f}%)"
-                    gap_target = f"Gap fill target: ${prev_close_value:.2f}"
-                elif gap_percent < -2.0:
-                    gap_info = f"with a significant gap down ({abs(gap_percent):.1f}%)"
-                    gap_target = f"Gap fill target: ${prev_close_value:.2f}"
-                elif gap_percent > 0:
-                    gap_info = "with a small gap up"
-                elif gap_percent < 0:
-                    gap_info = "with a small gap down"
-            except Exception as e:
-                gap_info = f"(gap analysis error: {str(e)})"
+            prev_close = float(stock_data['Close'].iloc[-2])
+            gap_percent = ((current_price - prev_close) / prev_close) * 100
+            if abs(gap_percent) > 2:
+                direction = "up" if gap_percent > 0 else "down"
+                gap_info = f" with a significant gap {direction} ({abs(gap_percent):.1f}%)"
         
-        # Price position analysis
-        position = "trading in the middle of its recent range"
-        price_range = resistance - support
-        
-        if price_range > 0:  # Ensure valid range
-            support_zone = support + price_range * 0.3
-            resistance_zone = resistance - price_range * 0.3
-            
-            if current_price < support_zone:
-                position = "trading near support levels"
-            elif current_price > resistance_zone:
-                position = "trading near resistance levels"
-        
-        # Volatility context
-        vol_context = "low volatility - smaller price moves expected"
-        volatility_ratio = volatility / current_price if current_price > 0 else 0
-        
-        if volatility_ratio > 0.03:
-            vol_context = "high volatility - expect larger price swings"
-        elif volatility_ratio > 0.015:
-            vol_context = "moderate volatility - normal price movements"
-        
-        # RSI interpretation
-        rsi_context = "RSI shows neutral momentum"
-        if rsi > 70:
-            rsi_context = "RSI indicates overbought conditions"
-        elif rsi < 30:
-            rsi_context = "RSI indicates oversold conditions"
-        
-        # Create narrative
         narrative = f"""
-**Beginner-Friendly Analysis of {recommendation['symbol']}**
+**Beginner-Friendly Analysis of {symbol}**
 
-- **Overall Trend**: The stock is in a **{trend}** {gap_info}
-- **Price Position**: Currently **{position}** (Support: ${support:.2f}, Resistance: ${resistance:.2f})
+- **Overall Trend**: The stock is in a **{trend}**{gap_info}
+- **Price Position**: Currently trading at **${current_price:.2f}** between support (${support:.2f}) and resistance (${resistance:.2f})
 - **Key Indicators**:
-  - Today's change: **{daily_change:.2f}%** ({vol_context})
-  - RSI: **{rsi:.1f}** ({rsi_context})
-  - VWAP: **${vwap:.2f}** (volume-weighted average)
-- **Important Levels**:
-  - Upside target: ${resistance:.2f}
-  - Downside target: ${support:.2f}
-  - Volatility range: ±${volatility:.2f} from current price
-  {f"- {gap_target}" if gap_target else ""}
-
-**Beginner Trading Tips**:
-1. In **{trend.split()[0]} trends**, trade in the trend direction
-2. Place stop-loss orders below support for buy positions, above resistance for sell positions
-3. Take partial profits near key levels to lock in gains
-4. {f"Watch for gap fill at ${prev_close_value:.2f}" if gap_target else "No significant gap to fill"}
+  - RSI: **{rsi:.1f}** ({'overbought' if rsi > 70 else 'oversold' if rsi < 30 else 'neutral'})
+  - Volatility: ±${volatility:.2f} from current price
+- **Trading Tips**:
+  - In **{trend.split()[0]} trends**, trade in the trend direction
+  - Place stop-loss orders below support for buy positions
+  - Take partial profits near resistance levels
 """
         return narrative
         
     except Exception as e:
-        import traceback
-        return f"**Error generating narrative:** {str(e)}\n\n```{traceback.format_exc()}```"
+        return f"**Error generating narrative:** {str(e)}"
 
 # DATA FUNCTIONS
 @st.cache_data
 def get_stock_data(symbol, timeframe):
     try:
         period_map = {
-            "15m": "60d",
+            "15m": "7d",
             "30m": "60d",
             "1h": "60d",
-            "4h": "60d",
+            "4h": "120d",  # Increased period for 4h data
             "Daily": "1y"
         }
         
@@ -325,21 +400,30 @@ def get_stock_data(symbol, timeframe):
             "4h": "240m",
             "Daily": "1d"
         }
-        
+            
         data = yf.download(
             symbol, 
             period=period_map[timeframe],
             interval=interval_map[timeframe],
             progress=False
         )
+        
+        # Special handling for 4h data if empty
+        if timeframe == "4h" and data.empty:
+            data = yf.download(
+                symbol, 
+                period="180d",
+                interval="240m",
+                progress=False
+            )
+        
         return data
     except Exception as e:
         st.error(f"Error fetching data: {e}")
         return pd.DataFrame()
 
 # MAIN DASHBOARD
-st.title("📊 Professional Swing Trading Dashboard")
-st.markdown("Analyze stocks using advanced technical indicators for realistic trading recommendations")
+st.markdown(f'<div class="header">📊 Professional Trading Dashboard: {symbol} Analysis</div>', unsafe_allow_html=True)
 
 if not symbol:
     st.warning("Please enter a stock symbol in the sidebar")
@@ -348,242 +432,376 @@ if not symbol:
 stock_data = get_stock_data(symbol, timeframe)
 
 if stock_data.empty:
-    st.error(f"No data found for {symbol}")
+    st.error(f"No data found for {symbol} with {timeframe} timeframe")
     st.stop()
 
-# Clean and validate data
-stock_data = stock_data.dropna()
+if len(stock_data) > 0:
+    stock_data = stock_data.dropna()
 
-# Check data sufficiency
 if len(stock_data) < 2:
     st.error(f"⚠️ Insufficient historical data ({len(stock_data)} bars available). Requires at least 2 bars.")
     st.stop()
 
-try:
-    recommendation = generate_recommendation(stock_data, symbol, risk_level)
-    current_price = float(recommendation['current_price'])
-    volatility = float(recommendation['volatility'])
+# Get accurate pre-market and post-market data
+ticker = yf.Ticker(symbol)
+ny_tz = pytz.timezone('America/New_York')
+today = datetime.now(ny_tz).date()
+full_day_data = ticker.history(period="1d", interval="1m", prepost=True)
+
+premarket_session = full_day_data.between_time("04:00", "09:30")
+postmarket_session = full_day_data.between_time("16:00", "20:00")
+
+# Pre-market data
+premarket_open = None
+premarket_close = None
+premarket_high = None
+premarket_low = None
+premarket_volume = None
+premarket_change = 0
+
+if not premarket_session.empty:
+    premarket_open = float(premarket_session['Open'].iloc[0]) if len(premarket_session) > 0 else None
+    premarket_close = float(premarket_session['Close'].iloc[-1]) if len(premarket_session) > 0 else None
+    premarket_high = float(premarket_session['High'].max()) if len(premarket_session) > 0 else None
+    premarket_low = float(premarket_session['Low'].min()) if len(premarket_session) > 0 else None
+    premarket_volume = float(premarket_session['Volume'].sum()) if len(premarket_session) > 0 else None
+    if premarket_open and premarket_close:
+        premarket_change = ((premarket_close - premarket_open) / premarket_open * 100) if premarket_open != 0 else 0
+
+# Post-market data
+postmarket_open = None
+postmarket_close = None
+postmarket_high = None
+postmarket_low = None
+postmarket_volume = None
+postmarket_change = 0
+
+if not postmarket_session.empty:
+    postmarket_open = float(postmarket_session['Open'].iloc[0]) if len(postmarket_session) > 0 else None
+    postmarket_close = float(postmarket_session['Close'].iloc[-1]) if len(postmarket_session) > 0 else None
+    postmarket_high = float(postmarket_session['High'].max()) if len(postmarket_session) > 0 else None
+    postmarket_low = float(postmarket_session['Low'].min()) if len(postmarket_session) > 0 else None
+    postmarket_volume = float(postmarket_session['Volume'].sum()) if len(postmarket_session) > 0 else None
+    if postmarket_open and postmarket_close:
+        postmarket_change = ((postmarket_close - postmarket_open) / postmarket_open * 100) if postmarket_open != 0 else 0
+
+# Calculate metrics
+current_price = float(stock_data['Close'].iloc[-1]) if len(stock_data) > 0 else 0
+prev_close = float(stock_data['Close'].iloc[-2]) if len(stock_data) > 1 else current_price
+daily_change = ((current_price - prev_close) / prev_close) * 100 if prev_close != 0 else 0
+support, resistance = calculate_support_resistance(stock_data)
+volatility = calculate_volatility(stock_data)
+vwap = calculate_vwap(stock_data)
+s1, pivot, r1 = calculate_daily_pivot_points(symbol)
+rsi = calculate_rsi(stock_data)
+
+# Volume metrics
+if len(stock_data) > 63:
+    vol_avg_3mo = float(stock_data['Volume'].tail(63).mean())
+elif len(stock_data) > 0:
+    vol_avg_3mo = float(stock_data['Volume'].mean())
+else:
+    vol_avg_3mo = 0
+
+# Gap filling analysis
+gap_fill_commentary = ""
+if len(stock_data) >= 2:
+    prev_close_val = float(stock_data['Close'].iloc[-2])
+    current_open = float(stock_data['Open'].iloc[-1])
+    gap_percent = ((current_open - prev_close_val) / prev_close_val * 100)
     
-    # Calculate stop-loss and take-profit
-    support_val = float(recommendation['support'])
-    resistance_val = float(recommendation['resistance'])
-    
-    if recommendation['action'] == "BUY":
-        stop_loss = max(support_val, current_price - volatility * risk_reward)
-        take_profit = min(resistance_val, current_price + volatility * risk_reward * 2)
-    elif recommendation['action'] == "SELL":
-        stop_loss = min(resistance_val, current_price + volatility * risk_reward)
-        take_profit = max(support_val, current_price - volatility * risk_reward * 2)
+    if abs(gap_percent) > 1:  # Significant gap
+        gap_direction = "up" if gap_percent > 0 else "down"
+        
+        # Check if gap has been filled
+        low_since_open = float(stock_data['Low'].iloc[-1:].min())
+        high_since_open = float(stock_data['High'].iloc[-1:].max())
+        
+        gap_filled = False
+        if gap_percent > 0 and low_since_open <= prev_close_val:
+            gap_filled = True
+        elif gap_percent < 0 and high_since_open >= prev_close_val:
+            gap_filled = True
+            
+        gap_fill_commentary = f"<strong>{abs(gap_percent):.1f}% gap {gap_direction}</strong> "
+        gap_fill_commentary += f"({'filled' if gap_filled else 'not filled'})"
+        
+        # Trading implications
+        if gap_filled:
+            gap_fill_commentary += " - Gap fill complete, trend continuation likely"
+        else:
+            if gap_percent > 0:
+                gap_fill_commentary += f" - Support at ${prev_close_val:.2f} (gap fill level)"
+            else:
+                gap_fill_commentary += f" - Resistance at ${prev_close_val:.2f} (gap fill level)"
+
+# SECTION 1: EXTENDED HOURS PERFORMANCE
+st.markdown('<div class="section-header">🌅 Extended Hours Performance</div>', unsafe_allow_html=True)
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.markdown("### Pre-Market Trading")
+    if premarket_open:
+        pm_color = "positive" if premarket_change > 0 else "negative" if premarket_change < 0 else ""
+        st.markdown(f"<div class='data-point'><div class='data-label'>Open:</div><div class='data-value'>${premarket_open:.2f}</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='data-point'><div class='data-label'>Close:</div><div class='data-value'>${premarket_close:.2f} <span class='price-change {pm_color}'>({premarket_change:+.2f}%)</span></div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='data-point'><div class='data-label'>High:</div><div class='data-value'>${premarket_high:.2f}</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='data-point'><div class='data-label'>Low:</div><div class='data-value'>${premarket_low:.2f}</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='data-point'><div class='data-label'>Volume:</div><div class='data-value'>{premarket_volume/1e6:.2f}M</div></div>", unsafe_allow_html=True)
+        
+        # Premarket commentary
+        if abs(premarket_change) > 1.5:
+            pm_comment = "Strong momentum heading into regular session"
+        elif premarket_volume > vol_avg_3mo * 1.5:
+            pm_comment = "High premarket volume indicates significant interest"
+        else:
+            pm_comment = "Normal premarket activity"
+        st.markdown(f"<div class='commentary'>{pm_comment}</div>", unsafe_allow_html=True)
     else:
-        stop_loss = current_price - volatility * risk_reward
-        take_profit = current_price + volatility * risk_reward * 2
+        st.markdown("<div class='commentary'>No pre-market data available</div>", unsafe_allow_html=True)
 
-    # DASHBOARD LAYOUT
-    col1, col2 = st.columns([1, 2])
+with col2:
+    st.markdown("### Post-Market Trading")
+    if postmarket_open:
+        pom_color = "positive" if postmarket_change > 0 else "negative" if postmarket_change < 0 else ""
+        st.markdown(f"<div class='data-point'><div class='data-label'>Open:</div><div class='data-value'>${postmarket_open:.2f}</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='data-point'><div class='data-label'>Close:</div><div class='data-value'>${postmarket_close:.2f} <span class='price-change {pom_color}'>({postmarket_change:+.2f}%)</span></div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='data-point'><div class='data-label'>High:</div><div class='data-value'>${postmarket_high:.2f}</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='data-point'><div class='data-label'>Low:</div><div class='data-value'>${postmarket_low:.2f}</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='data-point'><div class='data-label'>Volume:</div><div class='data-value'>{postmarket_volume/1e6:.2f}M</div></div>", unsafe_allow_html=True)
+        
+        # Postmarket commentary
+        if abs(postmarket_change) > 2:
+            pom_comment = "Significant after-hours movement - watch for next day follow-through"
+        elif postmarket_volume > vol_avg_3mo * 1.2:
+            pom_comment = "Elevated after-hours volume suggests continued interest"
+        else:
+            pom_comment = "Typical postmarket activity"
+        st.markdown(f"<div class='commentary'>{pom_comment}</div>", unsafe_allow_html=True)
+    else:
+        st.markdown("<div class='commentary'>No post-market data available</div>", unsafe_allow_html=True)
 
-    with col1:
-        st.markdown(f"### Current Price: ${current_price:.2f}")
-        
-        # Key metrics cards
-        st.markdown("#### Key Levels")
-        col1a, col1b = st.columns(2)
-        with col1a:
-            st.markdown(f"""
-                <div class="card">
-                    <div>Support</div>
-                    <div class="big-font">${recommendation['support']:.2f}</div>
-                </div>
-            """, unsafe_allow_html=True)
-        with col1b:
-            st.markdown(f"""
-                <div class="card">
-                    <div>Resistance</div>
-                    <div class="big-font">${recommendation['resistance']:.2f}</div>
-                </div>
-            """, unsafe_allow_html=True)
-        
-        st.markdown("#### Market Data")
-        col2a, col2b = st.columns(2)
-        with col2a:
-            change_class = "positive" if recommendation['daily_change'] >= 0 else "negative"
-            st.markdown(f"""
-                <div class="card">
-                    <div>Daily Change</div>
-                    <div class="big-font {change_class}">{recommendation['daily_change']:.2f}%</div>
-                </div>
-            """, unsafe_allow_html=True)
-        with col2b:
-            st.markdown(f"""
-                <div class="card">
-                    <div>Volatility (ATR)</div>
-                    <div class="big-font">${recommendation['volatility']:.2f}</div>
-                </div>
-            """, unsafe_allow_html=True)
-        
-        # Trading recommendation
-        st.markdown("#### Trading Recommendation")
-        action_class = recommendation["action"].lower()
-        
-        # Create the recommendation using simple HTML without complex formatting
-        rec_html = f"""
-        <div class="recommendation {action_class}">
-            <div class="big-font">{recommendation['action']} {symbol}</div>
-            <div>Confidence: {recommendation['confidence']}</div>
-            <div>Reason: {recommendation['reason']}</div>
-            <br>
-        """
-        
-        if recommendation["action"] == "BUY":
-            rec_html += f"<div>Entry Zone: {recommendation['buy_range']}</div>"
-            rec_html += f"<div>Profit Target: {recommendation['sell_range']}</div>"
-        elif recommendation["action"] == "SELL":
-            rec_html += f"<div>Exit Zone: {recommendation['sell_range']}</div>"
-            rec_html += f"<div>Re-entry Zone: {recommendation['buy_range']}</div>"
-        else:  # HOLD
-            rec_html += f"<div>Accumulation Zone: {recommendation['buy_range']}</div>"
-            rec_html += f"<div>Distribution Zone: {recommendation['sell_range']}</div>"
-            
-        rec_html += f"""
-            <div style="margin-top:10px">
-                <div>Stop-Loss: <strong>${stop_loss:.2f}</strong></div>
-                <div>Take-Profit: <strong>${take_profit:.2f}</strong></div>
-                <div>Risk-Reward: <strong>1:{risk_reward:.1f}</strong></div>
-            </div>
-        </div>
-        """
-        
-        st.markdown(rec_html, unsafe_allow_html=True)
-        
-        # Beginner narrative
-        st.markdown("#### Beginner Analysis")
-        narrative = generate_narrative(recommendation, stock_data)
-        st.markdown(f'<div class="narrative">{narrative}</div>', unsafe_allow_html=True)
+# SECTION 2: REGULAR SESSION PERFORMANCE
+st.markdown('<div class="section-header">💰 Regular Session Performance</div>', unsafe_allow_html=True)
 
-    with col2:
-        # Price chart with technical indicators
-        st.markdown(f"### {symbol} Price Analysis ({timeframe})")
-        fig = go.Figure()
-        
-        # Candlesticks
-        fig.add_trace(go.Candlestick(
-            x=stock_data.index,
-            open=stock_data['Open'],
-            high=stock_data['High'],
-            low=stock_data['Low'],
-            close=stock_data['Close'],
-            name='Price'
-        ))
-        
-        # Support and resistance
-        fig.add_hline(y=recommendation['support'], line_dash="dash", line_color="green",
-                    annotation_text=f"Support: ${recommendation['support']:.2f}", 
-                    annotation_position="bottom right")
-        fig.add_hline(y=recommendation['resistance'], line_dash="dash", line_color="red",
-                    annotation_text=f"Resistance: ${recommendation['resistance']:.2f}", 
-                    annotation_position="top right")
-        
-        # VWAP (for intraday charts)
-        if timeframe != "Daily":
-            vwap = calculate_vwap(stock_data)
-            fig.add_hline(y=vwap, line_dash="dot", line_color="blue",
-                        annotation_text=f"VWAP: ${vwap:.2f}",
-                        annotation_position="bottom left")
-        
-        fig.update_layout(
-            height=500,
-            template="plotly_white",
-            showlegend=False,
-            xaxis_rangeslider_visible=False
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Technical indicators row
-        st.markdown("### Technical Indicators")
-        col_ind1, col_ind2 = st.columns(2)
-        
-        with col_ind1:
-            # RSI chart
-            rsi_values = []
-            if len(stock_data) > 14:
-                delta = stock_data['Close'].diff()
-                gain = delta.where(delta > 0, 0)
-                loss = -delta.where(delta < 0, 0)
-                avg_gain = gain.rolling(14).mean()
-                avg_loss = loss.rolling(14).mean()
-                rs = avg_gain / avg_loss
-                rsi_values = 100 - (100 / (1 + rs))
-            
-            rsi_fig = go.Figure()
-            if len(rsi_values) > 0:
-                rsi_fig.add_trace(go.Scatter(
-                    x=stock_data.index,
-                    y=rsi_values,
-                    line=dict(color='purple', width=2),
-                    name='RSI'
-                ))
-            rsi_fig.add_hline(y=30, line_dash="dash", line_color="green")
-            rsi_fig.add_hline(y=70, line_dash="dash", line_color="red")
-            rsi_fig.update_layout(
-                height=300,
-                title="RSI (14-period)",
-                yaxis_range=[0,100],
-                template="plotly_white"
-            )
-            st.plotly_chart(rsi_fig, use_container_width=True)
-            
-        with col_ind2:
-            # Volume chart
-            vol_fig = go.Figure()
-            if len(stock_data) > 0:
-                colors = np.where(stock_data['Close'] > stock_data['Open'], '#4CAF50', '#f44336')
-                
-                vol_fig.add_trace(go.Bar(
-                    x=stock_data.index,
-                    y=stock_data['Volume'],
-                    marker_color=colors,
-                    name='Volume'
-                ))
-            vol_fig.update_layout(
-                height=300,
-                title="Volume",
-                template="plotly_white",
-                showlegend=False
-            )
-            st.plotly_chart(vol_fig, use_container_width=True)
+# Calculate intraday metrics
+current_open = float(stock_data['Open'].iloc[-1]) if len(stock_data) > 0 else current_price
+intraday_high = current_price
+intraday_low = current_price
+high_volume = 0
+low_volume = 0
 
-except Exception as e:
-    st.error(f"An error occurred: {str(e)}")
-    st.stop()
+if len(stock_data) > 0:
+    today_mask = stock_data.index.date == today
+    today_data = stock_data[today_mask]
+    
+    if len(today_data) > 0:
+        intraday_high = float(today_data['High'].max())
+        intraday_low = float(today_data['Low'].min())
+        
+        # Find volume at high and low
+        high_row = today_data[today_data['High'] == intraday_high]
+        low_row = today_data[today_data['Low'] == intraday_low]
+        
+        if len(high_row) > 0:
+            high_volume = float(high_row['Volume'].iloc[0])
+        if len(low_row) > 0:
+            low_volume = float(low_row['Volume'].iloc[0])
 
-# STRATEGY EXPLANATION
-st.markdown("---")
-st.subheader("Trading Strategy Explanation")
-st.markdown("""
-**Professional Swing Trading Approach:**
+vol_range = ((intraday_high - intraday_low) / intraday_low) * 100 if intraday_low != 0 else 0
 
-1. **Multi-Timeframe Analysis**:
-   - Uses 15min to daily charts to identify trade setups
-   - Combines short-term entries with daily trend direction
+# Regular session data with commentary
+daily_color = "positive" if daily_change > 0 else "negative" if daily_change < 0 else ""
+st.markdown(f"<div class='data-point'><div class='data-label'>Open:</div><div class='data-value'>${current_open:.2f}</div></div>", unsafe_allow_html=True)
+st.markdown(f"<div class='data-point'><div class='data-label'>Close:</div><div class='data-value'>${current_price:.2f} <span class='price-change {daily_color}'>({daily_change:+.2f}%)</span></div></div>", unsafe_allow_html=True)
+st.markdown(f"<div class='data-point'><div class='data-label'>High:</div><div class='data-value'>${intraday_high:.2f} (Vol: {high_volume/1e6:.2f}M)</div></div>", unsafe_allow_html=True)
+st.markdown(f"<div class='data-point'><div class='data-label'>Low:</div><div class='data-value'>${intraday_low:.2f} (Vol: {low_volume/1e6:.2f}M)</div></div>", unsafe_allow_html=True)
+st.markdown(f"<div class='data-point'><div class='data-label'>Volatility:</div><div class='data-value'>{vol_range:.1f}%</div></div>", unsafe_allow_html=True)
 
-2. **Key Technical Tools**:
-   - Volume Weighted Average Price (VWAP) for intraday bias
-   - RSI for momentum and overbought/oversold conditions
-   - Support/resistance based on Fibonacci + pivot points
+intraday_comment = ""
+if vol_range > 10:
+    intraday_comment = "Extreme volatility with wide price swings"
+elif vol_range > 5:
+    intraday_comment = "Elevated volatility during trading session"
+elif high_volume and high_volume > low_volume * 1.5:
+    intraday_comment = "Volume concentrated at highs suggests strong buying pressure"
+elif low_volume and low_volume > high_volume * 1.5:
+    intraday_comment = "Volume concentrated at lows suggests selling pressure"
 
-3. **Risk-Managed Trading**:
-   - Stop-loss based on volatility (ATR) and risk tolerance
-   - Take-profit levels aligned with key technical zones
-   - Clear 1:2+ risk-reward ratios
+if intraday_comment:
+    st.markdown(f"<div class='commentary'>{intraday_comment}</div>", unsafe_allow_html=True)
+    
+# Source citations
+st.markdown('<div class="source-row">Data Sources: Yahoo Finance • stocktitan.net • investing.com • chartmill.com</div>', unsafe_allow_html=True)
 
-4. **Beginner-Friendly Guidance**:
-   - Narrative explanations of price action
-   - Gap analysis and fill targets
-   - Trend identification and trading tips
-""")
+# Key takeaways
+takeaway = ""
+if premarket_open and premarket_change > 1.5 and daily_change > 0:
+    takeaway = "Strong pre-market momentum carried into regular session"
+elif premarket_open and premarket_change < -1.5 and daily_change < 0:
+    takeaway = "Pre-market weakness continued through regular session"
+elif intraday_comment:
+    takeaway = intraday_comment
+else:
+    takeaway = "Typical trading session with normal price action"
+
+st.markdown(f"""
+<div class="takeaway-box">
+    <strong>Key takeaways:</strong> {takeaway}
+</div>
+""", unsafe_allow_html=True)
+
+# SECTION 3: TECHNICAL INDICATORS
+st.markdown('<div class="section-header">🔍 Technical Indicators</div>', unsafe_allow_html=True)
+
+# Calculate MA status
+ma_periods = [5, 10, 20, 50, 100, 200]
+ma_bullish = True
+ma_values = []
+for period in ma_periods:
+    if len(stock_data) >= period:
+        ma = float(stock_data['Close'].rolling(period).mean().iloc[-1])
+        ma_values.append(f"{period}-day: ${ma:.2f}")
+        if current_price < ma:
+            ma_bullish = False
+ma_text = " | ".join(ma_values)
+
+# RSI status
+rsi_status = "neutral"
+if rsi > 70:
+    rsi_status = "overbought"
+elif rsi < 30:
+    rsi_status = "oversold"
+
+# Display indicators
+st.markdown(f"""
+<div class="indicator-row">
+    <div class="indicator-name">Moving Averages:</div>
+    <div>Key MAs are <strong>{'bullish' if ma_bullish else 'mixed'}</strong>; {ma_text}</div>
+</div>
+
+<div class="indicator-row">
+    <div class="indicator-name">RSI(14):</div>
+    <div>~{rsi:.0f} — {rsi_status}</div>
+</div>
+
+<div class="indicator-row">
+    <div class="indicator-name">Gap Analysis:</div>
+    <div>{gap_fill_commentary if gap_fill_commentary else "No significant gap today"}</div>
+</div>
+
+<div class="indicator-row">
+    <div class="indicator-name">Volatility (ATR):</div>
+    <div>${volatility:.2f}</div>
+</div>
+
+<div class="indicator-row">
+    <div class="indicator-name">VWAP:</div>
+    <div>${vwap:.2f}</div>
+</div>
+
+<div class="indicator-row">
+    <div class="indicator-name">Pivot levels:</div>
+    <div>Support ~${s1:.2f}, pivot ~${pivot:.2f}, resistance ~${r1:.2f}</div>
+</div>
+""", unsafe_allow_html=True)
+
+# Summary
+summary_text = f"Indicators are {'bullish' if ma_bullish else 'mixed'}. "
+if rsi_status == "overbought":
+    summary_text += "RSI suggests caution for overbought conditions."
+elif rsi_status == "oversold":
+    summary_text += "RSI suggests potential buying opportunity."
+else:
+    summary_text += "RSI is neutral."
+
+st.markdown(f"""
+<div class="takeaway-box">
+    <strong>Summary:</strong> {summary_text}
+</div>
+""", unsafe_allow_html=True)
+
+# SECTION 4: TRADING RECOMMENDATION
+st.markdown('<div class="section-header">🚦 Trading Recommendation</div>', unsafe_allow_html=True)
+
+# Generate trading recommendation
+recommendation = generate_recommendation(stock_data, symbol)
+action_class = recommendation["action"].lower()
+
+# Calculate percentage distances
+current_price_val = recommendation['current_price']
+support_val = recommendation['support']
+resistance_val = recommendation['resistance']
+
+# Calculate support distance percentage
+if current_price_val != 0:
+    support_dist_pct = ((current_price_val - support_val) / current_price_val) * 100
+else:
+    support_dist_pct = 0
+
+# Calculate resistance distance percentage
+if current_price_val != 0:
+    resistance_dist_pct = ((resistance_val - current_price_val) / current_price_val) * 100
+else:
+    resistance_dist_pct = 0
+
+rec_html = f"""
+<div class="recommendation {action_class}">
+    <div style="font-size:24px;font-weight:bold;">{recommendation['action']} {symbol}</div>
+    <div><strong>Confidence:</strong> {recommendation['confidence']}</div>
+    <div><strong>Reason:</strong> {recommendation['reason']}</div>
+    <div style="margin-top:15px">
+        <div><strong>Current Price:</strong> ${current_price_val:.2f}</div>
+        <div><strong>Support:</strong> ${support_val:.2f} ({support_dist_pct:.1f}% below)</div>
+        <div><strong>Resistance:</strong> ${resistance_val:.2f} ({resistance_dist_pct:.1f}% above)</div>
+        <div><strong>RSI:</strong> {recommendation['rsi']:.1f} ({'Overbought' if recommendation['rsi'] > 70 else 'Oversold' if recommendation['rsi'] < 30 else 'Neutral'})</div>
+    </div>
+</div>
+"""
+
+st.markdown(rec_html, unsafe_allow_html=True)
+
+# SECTION 5: BEGINNER ANALYSIS
+st.markdown('<div class="section-header">🧠 Beginner Analysis</div>', unsafe_allow_html=True)
+
+narrative = generate_narrative(recommendation, stock_data)
+st.markdown(f'<div class="narrative">{narrative}</div>', unsafe_allow_html=True)
+
+# SECTION 6: BUY/SELL IDEAS
+st.markdown('<div class="section-header">💼 Buy/Sell Ideas (Beginner-Friendly)</div>', unsafe_allow_html=True)
+
+# Trading ideas
+st.markdown(f"""
+<div class="trading-idea">
+    <strong>Aggressive entry:</strong> For short swing, consider late-day pullback into ${recommendation['support']-1:.2f}–${recommendation['support']+1:.2f} (support zone).
+</div>
+
+<div class="trading-idea">
+    <strong>More cautious:</strong> Wait for RSI cool down (below 60) and retest near pivot (${pivot:.2f}).
+</div>
+
+<div class="trading-idea">
+    <strong>Targets:</strong> Partial profit near ${r1:.2f} (next resistance), with room to ${r1*1.1:.2f}+ on momentum continuation; trail stops tight.
+</div>
+
+<div class="trading-idea">
+    <strong>Stops:</strong> Below support—break under ${recommendation['support']-2:.2f} invalidates setup.
+</div>
+
+<div class="trading-idea">
+    <strong>Risk/Reward:</strong> At ${recommendation['support']:.2f} entry, stop at ${recommendation['support']-3:.2f} (risk ~$3), target ${r1:.2f} → ~2.7:1 R:R.
+</div>
+
+<div class="trading-idea">
+    <strong>Position sizing:</strong> Keep small – this is volatile. Use under 1–2% of capital per swing.
+</div>
+""", unsafe_allow_html=True)
 
 # DISCLAIMER
 st.markdown("---")
 st.caption("""
 **Disclaimer**: This is for educational purposes only. Past performance is not indicative of future results. 
-Always conduct your own research and consider consulting a financial advisor before trading.
+Pre-market data may be limited or delayed. Always conduct your own research and consider consulting 
+a financial advisor before trading.
 """)
